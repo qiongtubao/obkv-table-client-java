@@ -43,6 +43,7 @@ import com.alipay.oceanbase.rpc.table.api.TableQuery;
 import com.alipay.oceanbase.rpc.threadlocal.ThreadLocalMap;
 import com.alipay.oceanbase.rpc.util.*;
 import com.alipay.remoting.util.StringUtils;
+import latte.log.LatteLog;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -168,11 +169,13 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
             if (initialized) {
                 return;
             }
+            LatteLog.latte_logger.info("[latte][ObTableClient][init] init start");
             // 1.init properties
             initProperties();
             // 2. init metadata
             initMetadata();
             initialized = true;
+            LatteLog.latte_logger.info("[latte][ObTableClient][init] init end");
         } catch (Throwable t) {
             BOOT.warn("failed to init ObTableClient", t);
             RUNTIME.warn("failed to init ObTableClient", t);
@@ -839,7 +842,8 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
                 logger.info("start refresh metadata, ts: {}, dataSourceName: {}, url: {}",
                     lastRefreshMetadataTimestamp, dataSourceName, paramURL);
             }
-
+            LatteLog.latte_logger
+                .info("[latte][ObTableClient][syncRefreshMetadata] reload ocp model");
             this.ocpModel = loadOcpModel(paramURL, //
                 dataSourceName,//
                 rsListAcquireConnectTimeout,//

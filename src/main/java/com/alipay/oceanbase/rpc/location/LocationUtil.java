@@ -35,6 +35,7 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.column.ObSimpleColumn;
 import com.alipay.oceanbase.rpc.protocol.payload.impl.execute.ObIndexType;
 import com.alipay.oceanbase.rpc.protocol.payload.impl.parser.ObGeneratedColumnExpressParser;
 import com.alipay.oceanbase.rpc.util.TableClientLoggerFactory;
+import latte.log.LatteLog;
 import org.slf4j.Logger;
 
 import java.io.*;
@@ -1711,7 +1712,8 @@ public class LocationUtil {
 
         OcpResponse ocpResponse = getRemoteOcpResponseOrNull(paramURL, dataSourceName,
             connectTimeout, readTimeout, retryTimes, retryInternal);
-
+        LatteLog.latte_logger.info("[latte][loadOcpModel][thread-{}]remote url {}, result: {}",
+            Thread.currentThread(), paramURL, ocpResponse);
         if (ocpResponse == null && (dataSourceName != null && !dataSourceName.isEmpty())) { // get config from local file
             ocpResponse = getLocalOcpResponseOrNull(dataSourceName);
         }
