@@ -17,6 +17,8 @@
 
 package com.alipay.oceanbase.rpc.protocol.packet;
 
+import com.alipay.oceanbase.rpc.ObGlobal;
+
 public class ObRpcPacket {
 
     private ObRpcPacketHeader rpcPacketHeader;
@@ -62,9 +64,11 @@ public class ObRpcPacket {
 
         int idx = 0;
         byte[] bytes = new byte[rpcPacketHeaderContent.length + payloadContent.length];
+
         // 1. header
         System.arraycopy(rpcPacketHeaderContent, 0, bytes, 0, rpcPacketHeader.getHlen());
         idx += rpcPacketHeaderContent.length;
+
 
         // 2. payload
         System.arraycopy(payloadContent, 0, bytes, idx, payloadContent.length);

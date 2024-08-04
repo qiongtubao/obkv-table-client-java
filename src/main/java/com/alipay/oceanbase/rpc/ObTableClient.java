@@ -169,13 +169,11 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
             if (initialized) {
                 return;
             }
-            LatteLog.latte_logger.info("[latte][ObTableClient][init] init start");
             // 1.init properties
             initProperties();
             // 2. init metadata
             initMetadata();
             initialized = true;
-            LatteLog.latte_logger.info("[latte][ObTableClient][init] init end");
         } catch (Throwable t) {
             BOOT.warn("failed to init ObTableClient", t);
             RUNTIME.warn("failed to init ObTableClient", t);
@@ -351,7 +349,6 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
             }
             return;
         }
-
         this.ocpModel = loadOcpModel(paramURL, dataSourceName, rsListAcquireConnectTimeout,
             rsListAcquireReadTimeout, rsListAcquireTryTimes, rsListAcquireRetryInterval);
 
@@ -549,6 +546,9 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
                 resetExecuteContinuousFailureCount(tableName);
                 return t;
             } catch (Exception ex) {
+                LatteLog.latte_logger.error("[latte][ObtableClient][execute] {}",
+                    (ex instanceof ObTableException) ? ((ObTableException) ex).getErrorCode() : -1,
+                    ex);
                 RUNTIME.error("execute while meet exception", ex);
                 if (odpMode) {
                     if ((tryTimes - 1) < runtimeRetryTimes) {
@@ -597,6 +597,7 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
                             throw ex;
                         }
                     } else {
+                        LatteLog.latte_logger.info("calculateContinuousFailure");
                         calculateContinuousFailure(tableName, ex.getMessage());
                         throw ex;
                     }
@@ -781,6 +782,8 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
         AtomicLong tempFailures = new AtomicLong();
         AtomicLong failures = tableContinuousFailures.putIfAbsent(tableName, tempFailures);
         failures = (failures == null) ? tempFailures : failures; // check the first failure
+        LatteLog.latte_logger.info("{} {} fail ceiling {} {}", this, tableName, failures.get(),
+            runtimeContinuousFailureCeiling);
         if (failures.incrementAndGet() > runtimeContinuousFailureCeiling) {
             logger.warn("refresh table entry {} while execute failed times exceeded {}, msg: {}",
                 tableName, runtimeContinuousFailureCeiling, errorMsg);
@@ -842,6 +845,7 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
                 logger.info("start refresh metadata, ts: {}, dataSourceName: {}, url: {}",
                     lastRefreshMetadataTimestamp, dataSourceName, paramURL);
             }
+            LatteLog.info_stackTrace();
             LatteLog.latte_logger
                 .info("[latte][ObTableClient][syncRefreshMetadata] reload ocp model");
             this.ocpModel = loadOcpModel(paramURL, //
@@ -1073,6 +1077,8 @@ public class ObTableClient extends AbstractObTableClient implements Lifecycle {
             if (!refresh) {
                 return tableEntry;
             }
+            LatteLog.info_stackTrace();
+            LatteLog.latte_logger.info("[latte][table] refresh table");
             // avoid unnecessary lock
             long punishInterval = (long) (tableEntryRefreshIntervalBase * Math.pow(2,
                 -serverRoster.getMaxPriority()));

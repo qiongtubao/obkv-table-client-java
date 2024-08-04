@@ -165,6 +165,11 @@
             <artifactId>jdbc</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>latte.lib</groupId>
+            <artifactId>api</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
     </dependencies>
 
     <build>

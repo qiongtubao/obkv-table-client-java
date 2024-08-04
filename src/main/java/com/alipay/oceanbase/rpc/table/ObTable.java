@@ -363,15 +363,15 @@ public class ObTable extends AbstractObTable implements Lifecycle {
 
         ObTableConnection connection = null;
         try {
-            connection = getConnection();
+            connection = getConnection();//首先尝试获取一个 ObTableConnection 对象，这通常涉及到从连接池中获取一个可用的连接或者建立一个新的连接。
             // check connection is available, if not available, reconnect it
-            connection.checkStatus();
+            connection.checkStatus();//方法用于检查连接的状态，如果连接不可用，它会尝试重新连接。
         } catch (ConnectException ex) {
             // cannot connect to ob server, need refresh table location
-            throw new ObTableServerConnectException(ex);
-        } catch (ObTableServerConnectException ex) {
+            throw new ObTableServerConnectException(ex);//如果无法连接到服务器，这通常意味着需要刷新表的位置信息。这里抛出一个
+        } catch (ObTableServerConnectException ex) {//如果已经发生了连接异常，直接抛出该异常。
             throw ex;
-        } catch (Exception ex) {
+        } catch (Exception ex) {//对于其他任何异常，这里抛出一个 ObTableConnectionStatusException 异常，并附带原始异常信息。
             throw new ObTableConnectionStatusException("check status failed", ex);
         }
         return executeWithReconnect(connection, request);
@@ -384,9 +384,9 @@ public class ObTable extends AbstractObTable implements Lifecycle {
         int retryTimes = 0;
         ObPayload payload = null;
         do {
-            retryTimes++;
+            retryTimes++;//重试次数
             try {
-                if (needReconnect) {
+                if (needReconnect) {//表示是否需要重新连接。
                     String msg = String
                         .format(
                             "Receive error: tenant not in server and reconnect it, ip:{}, port:{}, tenant id:{}, retryTimes: {}",
@@ -395,7 +395,7 @@ public class ObTable extends AbstractObTable implements Lifecycle {
                     connection.reConnectAndLogin(msg);
                     needReconnect = false;
                 }
-                payload = realClient.invokeSync(connection, request, obTableExecuteTimeout);
+                payload = realClient.invokeSync(connection, request, obTableExecuteTimeout);//执行
             } catch (ObTableException ex) {
                 if (ex instanceof ObTableTenantNotInServerException && retryTimes < 2) {
                     needReconnect = true;

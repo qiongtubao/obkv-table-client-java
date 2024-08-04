@@ -17,19 +17,20 @@
 
 package latte.log;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import latte.lib.api.monitor.Monitor;
+import latte.lib.api.monitor.Transaction;
 
-public class LatteLog {
-    public static Logger latte_logger = LoggerFactory.getLogger(LatteLog.class);
+public class LatteMonitor {
+    static Monitor monitor = null;
 
-    public static void info_stackTrace() {
-        Thread thread = Thread.currentThread();
-        StackTraceElement[] stackTraceElements = thread.getStackTrace();
-        String result = "";
-        for (StackTraceElement element : stackTraceElements) {
-            result += (element.toString() + "\n");
-        }
-        latte_logger.info("[latte][stackTrace] {}", result);
+    public static void setMonitor(Monitor monitor) {
+        LatteMonitor.monitor = monitor;
     }
+
+    public static Transaction getTransaction(String type) {
+        if (monitor == null)
+            return null;
+        return monitor.getTransaction(type);
+    }
+
 }

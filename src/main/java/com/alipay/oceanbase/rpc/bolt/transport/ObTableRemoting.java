@@ -25,6 +25,7 @@ import com.alipay.oceanbase.rpc.protocol.payload.AbstractPayload;
 import com.alipay.oceanbase.rpc.protocol.payload.Credentialable;
 import com.alipay.oceanbase.rpc.protocol.payload.ObPayload;
 import com.alipay.oceanbase.rpc.protocol.payload.ObRpcResultCode;
+import com.alipay.oceanbase.rpc.protocol.payload.impl.execute.ObTableOperationRequest;
 import com.alipay.oceanbase.rpc.protocol.payload.impl.login.ObTableLoginRequest;
 import com.alipay.oceanbase.rpc.util.ObPureCrc32C;
 import com.alipay.oceanbase.rpc.util.TableClientLoggerFactory;
@@ -32,6 +33,8 @@ import com.alipay.oceanbase.rpc.util.TraceUtil;
 import com.alipay.remoting.*;
 import com.alipay.remoting.exception.RemotingException;
 import io.netty.buffer.ByteBuf;
+import latte.lib.api.monitor.Transaction;
+import latte.log.LatteMonitor;
 import org.slf4j.Logger;
 
 import static com.alipay.oceanbase.rpc.protocol.packet.ObCompressType.INVALID_COMPRESSOR;
@@ -55,50 +58,73 @@ public class ObTableRemoting extends BaseRemoting {
                                 final int timeoutMillis) throws RemotingException,
                                                         InterruptedException {
 
-        request.setSequence(conn.getNextSequence());
+        request.setSequence(conn.getNextSequence());//设置序列号和唯一标识
         request.setUniqueId(conn.getUniqueId());
 
         if (request instanceof Credentialable) {
-            if (conn.getCredential() == null) {
+            if (conn.getCredential() == null) {//如果原来没有凭证报错
                 String errMessage = TraceUtil.formatTraceMessage(conn, request,
                     "credential is null");
                 logger.warn(errMessage);
                 throw new ObTableUnexpectedException(errMessage);
             }
-            ((Credentialable) request).setCredential(conn.getCredential());
+            ((Credentialable) request).setCredential(conn.getCredential());//设置凭据
         }
-        if (request instanceof ObTableLoginRequest) {
+        if (request instanceof ObTableLoginRequest) {//如果是登陆请求 则租户id为1 这通常表示系统租户。
             // setting sys tenant in rpc header when login
             ((ObTableLoginRequest) request).setTenantId(1);
-        } else if (request instanceof AbstractPayload) {
+        } else if (request instanceof AbstractPayload) {//设置请求的租户 ID 为连接的租户 ID。
             ((AbstractPayload) request).setTenantId(conn.getTenantId());
         }
 
-        ObTablePacket obRequest = this.getCommandFactory().createRequestCommand(request);
+        ObTablePacket obRequest = this.getCommandFactory().createRequestCommand(request);//创建请求
+        Transaction transaction = null;
+        try {
+            ObTableOperationRequest request1 = ((ObTableOperationRequest) request);
+            transaction = LatteMonitor.getTransaction("obtable.remoting.rpc."
+                                                      + request1.getTableOperation()
+                                                          .getOperationType().name() + "."
+                                                      + conn.getConnection().getRemoteIP() + ":"
+                                                      + conn.getConnection().getRemotePort());
+        } catch (Exception e) {
 
-        ObTablePacket response = (ObTablePacket) super.invokeSync(conn.getConnection(), obRequest,
-            timeoutMillis);
-
-        if (response == null) {
-            String errMessage = TraceUtil.formatTraceMessage(conn, request, "get null response");
-            logger.warn(errMessage);
-            ExceptionUtil.throwObTableTransportException(errMessage,
-                TransportCodes.BOLT_RESPONSE_NULL);
-            return null;
-        } else if (!response.isSuccess()) {
-            String errMessage = TraceUtil.formatTraceMessage(conn, request,
-                "get an error response: " + response.getMessage());
-            logger.warn(errMessage);
-            response.releaseByteBuf();
-            ExceptionUtil.throwObTableTransportException(errMessage, response.getTransportCode());
-            return null;
+        }
+        ObTablePacket response;
+        try {
+            response = (ObTablePacket) super.invokeSync(conn.getConnection(), obRequest,
+                timeoutMillis); //使用 super.invokeSync 方法发送请求，并等待响应。超时时间为 timeoutMillis。
+            if (response == null) {//响应为空 则记录警告日志并抛出ObTableTransportException
+                String errMessage = TraceUtil
+                    .formatTraceMessage(conn, request, "get null response");
+                logger.warn(errMessage);
+                ExceptionUtil.throwObTableTransportException(errMessage,
+                    TransportCodes.BOLT_RESPONSE_NULL);
+                if (transaction != null)
+                    transaction.setFail(new Exception(errMessage));
+                return null;
+            } else if (!response.isSuccess()) {//响应是否成功。如果不成功，则记录警告日志并抛出异常。
+                String errMessage = TraceUtil.formatTraceMessage(conn, request,
+                    "get an error response: " + response.getMessage());
+                logger.warn(errMessage);
+                response.releaseByteBuf();
+                ExceptionUtil.throwObTableTransportException(errMessage,
+                    response.getTransportCode());
+                if (transaction != null)
+                    transaction.setFail(new Exception(errMessage));
+                return null;
+            }
+            if (transaction != null)
+                transaction.setSuccess();
+        } finally {
+            if (transaction != null)
+                transaction.complete();
         }
 
         try {
             // decode packet header first
-            response.decodePacketHeader();
+            response.decodePacketHeader();//解码包头，获取压缩类型等信息。
             ObCompressType compressType = response.getHeader().getObCompressType();
-            if (compressType != INVALID_COMPRESSOR && compressType != NONE_COMPRESSOR) {
+            if (compressType != INVALID_COMPRESSOR && compressType != NONE_COMPRESSOR) { //如果压缩类型不是 INVALID_COMPRESSOR 也不是 NONE_COMPRESSOR 则抛出 FeatureNotSupportedException
                 String errMessage = TraceUtil.formatTraceMessage(
                     conn,
                     request,
@@ -109,7 +135,7 @@ public class ObTableRemoting extends BaseRemoting {
             }
             ByteBuf buf = response.getPacketContentBuf();
             // If response indicates the request is routed to wrong server, we should refresh the routing meta.
-            if (response.getHeader().isRoutingWrong()) {
+            if (response.getHeader().isRoutingWrong()) { //处理路由错误
                 String errMessage = TraceUtil.formatTraceMessage(conn, request,
                     "routed to the wrong server: " + response.getMessage());
                 logger.warn(errMessage);
@@ -117,7 +143,7 @@ public class ObTableRemoting extends BaseRemoting {
             }
 
             // verify checksum
-            long expected_checksum = response.getHeader().getChecksum();
+            long expected_checksum = response.getHeader().getChecksum(); //验证校验和
             byte[] content = new byte[buf.readableBytes()];
             buf.getBytes(buf.readerIndex(), content);
             if (ObPureCrc32C.calculate(content) != expected_checksum) {
@@ -142,7 +168,7 @@ public class ObTableRemoting extends BaseRemoting {
 
             // decode payload itself
             ObPayload payload;
-            if (response.getCmdCode() instanceof ObTablePacketCode) {
+            if (response.getCmdCode() instanceof ObTablePacketCode) {//创造解析器
                 payload = ((ObTablePacketCode) response.getCmdCode()).newPayload(response
                     .getHeader());
                 payload.setSequence(response.getHeader().getTraceId1());
@@ -153,7 +179,7 @@ public class ObTableRemoting extends BaseRemoting {
                 throw new ObTableUnexpectedException(errMessage);
             }
 
-            payload.decode(buf);
+            payload.decode(buf);//解析数据
             return payload;
         } finally {
             // Very important to release ByteBuf memory

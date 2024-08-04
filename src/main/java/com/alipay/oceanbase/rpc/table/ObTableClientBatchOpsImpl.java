@@ -220,7 +220,9 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
     public Map<Long, ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>>> partitionPrepare()
                                                                                                       throws Exception {
         // consistent can not be sure
+        //获得操作列表 
         List<ObTableOperation> operations = batchOperation.getTableOperations();
+        //创建分区和对应信息的map
         Map<Long, ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>>> partitionOperationsMap = new HashMap<Long, ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>>>();
 
         if (obTableClient.isOdpMode()) {
@@ -235,15 +237,17 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
             partitionOperationsMap.put(0L, obTableOperations);
             return partitionOperationsMap;
         }
-
+        //遍历操作获得rowkey
         for (int i = 0; i < operations.size(); i++) {
             ObTableOperation operation = operations.get(i);
             ObRowKey rowKeyObject = operation.getEntity().getRowKey();
+            //rowkey obobj 长度
             int rowKeySize = rowKeyObject.getObjs().size();
             Object[] rowKey = new Object[rowKeySize];
             for (int j = 0; j < rowKeySize; j++) {
                 rowKey[j] = rowKeyObject.getObj(j).getValue();
             }
+
             ObPair<Long, ObTableParam> tableObPair = obTableClient.getTable(tableName, rowKey,
                 false, false, obTableClient.getRoute(batchOperation.isReadOnly()));
             ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>> obTableOperations = partitionOperationsMap
@@ -266,48 +270,48 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                                  Map.Entry<Long, ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>>> partitionOperation)
                                                                                                                                    throws Exception {
         ObTableParam tableParam = partitionOperation.getValue().getLeft();
-        long tableId = tableParam.getTableId();
-        long partId = tableParam.getPartitionId();
-        long originPartId = tableParam.getPartId();
-        ObTable subObTable = tableParam.getObTable();
+        long tableId = tableParam.getTableId();//表Id
+        long partId = tableParam.getPartitionId();//分区Id
+        long originPartId = tableParam.getPartId(); //原始分区Id
+        ObTable subObTable = tableParam.getObTable();//子表
         List<ObPair<Integer, ObTableOperation>> subOperationWithIndexList = partitionOperation
-            .getValue().getRight();
+            .getValue().getRight();//获得与索引关联的操作列表
 
-        ObTableBatchOperationRequest subRequest = new ObTableBatchOperationRequest();
+        ObTableBatchOperationRequest subRequest = new ObTableBatchOperationRequest(); //创建子请求对象
         ObTableBatchOperation subOperations = new ObTableBatchOperation();
-        for (ObPair<Integer, ObTableOperation> operationWithIndex : subOperationWithIndexList) {
+        for (ObPair<Integer, ObTableOperation> operationWithIndex : subOperationWithIndexList) { //遍历subOperationWithIndexList，将每个 ObTableOperation 添加到 subOperations 中。
             subOperations.addTableOperation(operationWithIndex.getRight());
         }
         subOperations.setSameType(batchOperation.isSameType());
         subOperations.setReadOnly(batchOperation.isReadOnly());
         subOperations.setSamePropertiesNames(batchOperation.isSamePropertiesNames());
-        subRequest.setBatchOperation(subOperations);
-        subRequest.setTableName(tableName);
-        subRequest.setReturningAffectedEntity(returningAffectedEntity);
-        subRequest.setReturningAffectedRows(true);
-        subRequest.setTableId(tableId);
-        subRequest.setPartitionId(partId);
-        subRequest.setEntityType(entityType);
-        subRequest.setTimeout(subObTable.getObTableOperationTimeout());
+        subRequest.setBatchOperation(subOperations); //设置子操作属性一致
+        subRequest.setTableName(tableName);//设置表名
+        subRequest.setReturningAffectedEntity(returningAffectedEntity);// 设置返回受影响实体
+        subRequest.setReturningAffectedRows(true);// 设置返回受影响行数
+        subRequest.setTableId(tableId);// 设置表ID
+        subRequest.setPartitionId(partId);// 设置分区ID
+        subRequest.setEntityType(entityType);// 设置实体类型
+        subRequest.setTimeout(subObTable.getObTableOperationTimeout());// 设置超时时间
         if (batchOperation.isReadOnly()) {
             subRequest.setConsistencyLevel(obTableClient.getReadConsistency()
-                .toObTableConsistencyLevel());
+                .toObTableConsistencyLevel()); //设置一致性级别
         }
-        subRequest.setBatchOperationAsAtomic(isAtomicOperation());
-        subRequest.setBatchOpReturnOneResult(isReturnOneResult());
-        ObTableBatchOperationResult subObTableBatchOperationResult;
+        subRequest.setBatchOperationAsAtomic(isAtomicOperation()); //设置原子性
+        subRequest.setBatchOpReturnOneResult(isReturnOneResult()); //设置是否返回单一结果
+        ObTableBatchOperationResult subObTableBatchOperationResult; //初始化子操作结果
 
-        boolean needRefreshTableEntry = false;
-        int tryTimes = 0;
-        long startExecute = System.currentTimeMillis();
-        Set<String> failedServerList = null;
-        ObServerRoute route = null;
+        boolean needRefreshTableEntry = false;//初始化是否需要刷新表条目
+        int tryTimes = 0;//初始化尝试次数
+        long startExecute = System.currentTimeMillis();//初始化执行开始时间
+        Set<String> failedServerList = null;//初始化失败服务器列表
+        ObServerRoute route = null;//初始化路由信息
 
         while (true) {
-            obTableClient.checkStatus();
-            long currentExecute = System.currentTimeMillis();
+            obTableClient.checkStatus();//检查客户端的状态
+            long currentExecute = System.currentTimeMillis();//计算已用时间
             long costMillis = currentExecute - startExecute;
-            if (costMillis > obTableClient.getRuntimeMaxWait()) {
+            if (costMillis > obTableClient.getRuntimeMaxWait()) {//检查是否超时
                 logger.error(
                     "tablename:{} partition id:{} it has tried " + tryTimes
                             + " times and it has waited " + costMillis
@@ -318,18 +322,18 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                                                  + "/ms which exceeds response timeout "
                                                  + obTableClient.getRuntimeMaxWait() + "/ms");
             }
-            tryTimes++;
+            tryTimes++;//增加尝试次数
             try {
                 if (obTableClient.isOdpMode()) {
                     subObTable = obTableClient.getOdpTable();
                 } else {
                     // getTable() when we need retry
                     // we should use partIdx to get table
-                    if (tryTimes > 1) {
-                        if (route == null) {
+                    if (tryTimes > 1) {//重试
+                        if (route == null) {//获得路由信息
                             route = obTableClient.getRoute(batchOperation.isReadOnly());
                         }
-                        if (failedServerList != null) {
+                        if (failedServerList != null) {// 如果有失败的服务器列表 (failedServerList)，则更新路由信息中的黑名单 调用 obTableClient.getTable() 来获取表。
                             route.setBlackList(failedServerList);
                         }
                         subObTable = obTableClient
@@ -339,8 +343,8 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                     }
                 }
                 subObTableBatchOperationResult = (ObTableBatchOperationResult) subObTable
-                    .execute(subRequest);
-                obTableClient.resetExecuteContinuousFailureCount(tableName);
+                    .execute(subRequest);// 来执行子请求，并将结果赋值给 subObTableBatchOperationResult。
+                obTableClient.resetExecuteContinuousFailureCount(tableName); // 重置连续失败计数。
                 break;
             } catch (Exception ex) {
                 if (obTableClient.isOdpMode()) {
@@ -359,9 +363,9 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                             "tablename:{} partition id:{} retry when replica not readable: {}",
                             tableName, partId, ex.getMessage());
                         if (failedServerList == null) {
-                            failedServerList = new HashSet<String>();
+                            failedServerList = new HashSet<String>(); //初始化错误
                         }
-                        failedServerList.add(subObTable.getIp());
+                        failedServerList.add(subObTable.getIp()); //追加错误ip
                     } else {
                         logger.warn("exhaust retry when replica not readable: {}", ex.getMessage());
                         throw ex;
@@ -389,12 +393,12 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                     throw ex;
                 }
             }
-            Thread.sleep(obTableClient.getRuntimeRetryInterval());
+            Thread.sleep(obTableClient.getRuntimeRetryInterval());//等一等重试
         }
 
-        long endExecute = System.currentTimeMillis();
+        long endExecute = System.currentTimeMillis();//结束时间
 
-        if (subObTableBatchOperationResult == null) {
+        if (subObTableBatchOperationResult == null) { //如果 subObTableBatchOperationResult 为 null，则记录错误日志并抛出 ObTableUnexpectedException。
             RUNTIME
                 .error(
                     "tablename:{} partition id:{} check batch operation result error: client get unexpected NULL result",
@@ -404,9 +408,9 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
         }
 
         List<ObTableOperationResult> subObTableOperationResults = subObTableBatchOperationResult
-            .getResults();
+            .getResults();//获得子请求结果列表
 
-        if (returnOneResult) {
+        if (returnOneResult) { //只要一个结果
             ObTableOperationResult subObTableOperationResult = subObTableOperationResults.get(0);
             if (results[0] == null) {
                 results[0] = new ObTableOperationResult();
@@ -418,10 +422,10 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                                            + subObTableOperationResult.getAffectedRows());
             }
         } else {
-            if (subObTableOperationResults.size() < subOperations.getTableOperations().size()) {
+            if (subObTableOperationResults.size() < subOperations.getTableOperations().size()) {//检查 subObTableOperationResults 的大小是否小于 subOperations.getTableOperations().size()。
                 // only one result when it across failed
                 // only one result when hkv puts
-                if (subObTableOperationResults.size() == 1) {
+                if (subObTableOperationResults.size() == 1) {//如果是，且结果列表大小为 1，则设置执行主机和端口信息，并将这个结果复制到所有位置。
                     ObTableOperationResult subObTableOperationResult = subObTableOperationResults
                         .get(0);
                     subObTableOperationResult.setExecuteHost(subObTable.getIp());
@@ -429,22 +433,22 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                     for (ObPair<Integer, ObTableOperation> aSubOperationWithIndexList : subOperationWithIndexList) {
                         results[aSubOperationWithIndexList.getLeft()] = subObTableOperationResult;
                     }
-                } else {
+                } else {//如果不是，抛出 IllegalArgumentException。
                     // unexpected result found
                     throw new IllegalArgumentException(
                         "check batch operation result size error: operation size ["
                                 + subOperations.getTableOperations().size() + "] result size ["
                                 + subObTableOperationResults.size() + "]");
                 }
-            } else {
-                if (subOperationWithIndexList.size() != subObTableOperationResults.size()) {
+            } else {//否则，验证 subOperationWithIndexList 和 subObTableOperationResults 的大小是否相等。
+                if (subOperationWithIndexList.size() != subObTableOperationResults.size()) { //如果不相等，抛出 ObTableUnexpectedException。
                     throw new ObTableUnexpectedException("check batch result error: partition "
                                                          + partId + " expect result size "
                                                          + subOperationWithIndexList.size()
                                                          + " actual result size "
                                                          + subObTableOperationResults.size());
                 }
-                for (int i = 0; i < subOperationWithIndexList.size(); i++) {
+                for (int i = 0; i < subOperationWithIndexList.size(); i++) {//遍历两个列表，设置每个结果的执行主机和端口信息，并将结果存储到相应的索引位置。
                     ObTableOperationResult subObTableOperationResult = subObTableOperationResults
                         .get(i);
                     subObTableOperationResult.setExecuteHost(subObTable.getIp());
@@ -457,32 +461,39 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
         MonitorUtil.info(subRequest, subObTable.getDatabase(), tableName,
             "BATCH-partitionExecute-", endpoint, subOperations, partId,
             subObTableOperationResults.size(), endExecute - startExecute,
-            obTableClient.getslowQueryMonitorThreshold());
+            obTableClient.getslowQueryMonitorThreshold());//记录执行监控信息
     }
 
     /*
      * Execute internal.
      */
     public ObTableBatchOperationResult executeInternal() throws Exception {
-
+        //表名长度不为空
         if (tableName == null || tableName.isEmpty()) {
             throw new IllegalArgumentException("table name is null");
         }
+        //开始时间
         long start = System.currentTimeMillis();
+        //获取所有待执行的操作列表
         List<ObTableOperation> operations = batchOperation.getTableOperations();
+        //创建结果列表数组
         ObTableOperationResult[] obTableOperationResults = null;
         if (returnOneResult) {
             obTableOperationResults = new ObTableOperationResult[1];
         } else {
             obTableOperationResults = new ObTableOperationResult[operations.size()];
         }
-
+        //解析出分区 键是分区标识符，值是一个包含分区参数和操作列表的对
         Map<Long, ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>>> partitions = partitionPrepare();
+        //
         long getTableTime = System.currentTimeMillis();
+        //上下文
         final Map<Object, Object> context = ThreadLocalMap.getContextMap();
+
         if (executorService != null && !executorService.isShutdown() && partitions.size() > 1) {
             final ConcurrentTaskExecutor executor = new ConcurrentTaskExecutor(executorService,
                 partitions.size());
+            //并发执行
             for (final Map.Entry<Long, ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>>> entry : partitions
                 .entrySet()) {
                 ObTableOperationResult[] finalObTableOperationResults = obTableOperationResults;
@@ -504,6 +515,7 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
                     }
                 });
             }
+            //批量等待时间 （每1ms检查一次）
             long estimate = obTableClient.getRuntimeBatchMaxWait() * 1000L * 1000L;
             try {
                 while (estimate > 0) {
@@ -544,15 +556,16 @@ public class ObTableClientBatchOpsImpl extends AbstractTableBatchOps {
         } else {
             for (final Map.Entry<Long, ObPair<ObTableParam, List<ObPair<Integer, ObTableOperation>>>> entry : partitions
                 .entrySet()) {
+                //执行操作
                 partitionExecute(obTableOperationResults, entry);
             }
         }
-
+        //执行结果
         ObTableBatchOperationResult batchOperationResult = new ObTableBatchOperationResult();
         for (ObTableOperationResult obTableOperationResult : obTableOperationResults) {
             batchOperationResult.addResult(obTableOperationResult);
         }
-
+        //记录执行时间
         MonitorUtil.info(batchOperationResult, obTableClient.getDatabase(), tableName, "BATCH", "",
             obTableOperationResults.length, getTableTime - start, System.currentTimeMillis()
                                                                   - getTableTime,
